@@ -123,12 +123,12 @@
             <el-table-column prop="target_satellite" label="对星名称" align="center" min-width="110"/>
             <el-table-column prop="yaw" label="方位角(°)" align="center" min-width="110">
               <template #default="scope">
-                {{ scope.row.yaw?.toString() || '-' }}
+                {{ scope.row.yaw ? (scope.row.yaw / 1e6 * (180 / Math.PI)).toFixed(6) : '-' }}
               </template>
             </el-table-column>
             <el-table-column prop="pitch" label="俯仰角(°)" align="center" min-width="110">
               <template #default="scope">
-                {{ scope.row.pitch?.toString() || '-' }}
+                {{ scope.row.pitch ? (scope.row.pitch / 1e6 * (180 / Math.PI)).toFixed(6) : '-' }}
               </template>
             </el-table-column>
             <el-table-column prop="distance" label="距离(km)" align="center" min-width="110">
@@ -198,6 +198,25 @@
           </el-table>
         </div>
       </el-dialog>
+
+      <!-- 添加计算结果提示对话框 -->
+      <el-dialog
+        v-model="showCalcResultDialog"
+        title="计算结果"
+        width="400px"
+        :close-on-click-modal="false"
+      >
+        <div class="calc-result-content" :class="{ 'error-message': !calcResult.success }">
+          <el-icon v-if="calcResult.success" class="success-icon" color="#67C23A"><CircleCheckFilled /></el-icon>
+          <el-icon v-else class="error-icon" color="#F56C6C"><CircleCloseFilled /></el-icon>
+          <p>{{ calcResult.message }}</p>
+        </div>
+        <template #footer>
+          <span class="dialog-footer">
+            <el-button @click="showCalcResultDialog = false">确定</el-button>
+          </span>
+        </template>
+      </el-dialog>
     </el-card>
   </div>
 </template> 
@@ -205,9 +224,25 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
+import type { CalculationResponse } from '../../types/global'
+
+// 获取今天的日期字符串
+function getTodayStr() {
+  const today = new Date()
+  const yyyy = today.getFullYear()
+  const mm = String(today.getMonth() + 1).padStart(2, '0')
+  const dd = String(today.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+const fileType = ref('excel')
+const uploading = ref(false)
+// 默认时间范围为今天
+const todayStr = getTodayStr()
+const dateRange = ref<[string, string]>([todayStr, todayStr])
 
 // 状态定义
-const dateRange = ref<[string, string] | null>(null)
 const selectedSourceSatellite = ref('')
 const selectedTargetSatellite = ref('')
 const selectedMatrixId = ref('')
@@ -220,6 +255,14 @@ const pageSize = ref(10)
 const calculating = ref(false)
 const calculationStatus = ref('')
 const showAddMatrixDialog = ref(false)
+const showCalcResultDialog = ref(false)
+const calcResult = ref<{
+  success: boolean
+  message: string
+}>({
+  success: false,
+  message: ''
+})
 
 // 新矩阵表单
 const newMatrix = ref({
@@ -237,45 +280,74 @@ const canCalculate = computed(() => {
          selectedMatrixId.value
 })
 
+// 获取计算结果
+const fetchCalculationResults = async () => {
+  try {
+    const result = await window.satellite.getEphemerisResults(
+      dateRange.value ? { start: dateRange.value[0], end: dateRange.value[1] } : undefined,
+      selectedSourceSatellite.value,
+      selectedTargetSatellite.value,
+      page.value,
+      pageSize.value
+    )
+    tableData.value = result.data
+    total.value = result.total
+  } catch (error) {
+    ElMessage.error('获取计算结果失败：' + (error instanceof Error ? error.message : String(error)))
+  }
+}
+
+// 处理批量计算
+const handleBatchCalculate = async () => {
+  if (!selectedSourceSatellite.value || !selectedTargetSatellite.value || !selectedMatrixId.value) {
+    ElMessage.warning('请选择本星、对星和精测矩阵')
+    return
+  }
+
+  calculating.value = true
+  calculationStatus.value = '正在计算中...'
+
+  try {
+    const result = await window.satellite.batchCalculate({
+      startTime: dateRange.value[0],
+      endTime: dateRange.value[1],
+      sourceSatellite: selectedSourceSatellite.value,
+      targetSatellite: selectedTargetSatellite.value,
+      matrixId: selectedMatrixId.value
+    })
+
+    calcResult.value = {
+      success: result.success,
+      message: result.message
+    }
+    showCalcResultDialog.value = true
+
+    // 如果计算成功，刷新数据
+    if (result.success) {
+      await fetchCalculationResults()
+    }
+  } catch (error) {
+    ElMessage.error('批量计算失败：' + (error instanceof Error ? error.message : String(error)))
+  } finally {
+    calculating.value = false
+    calculationStatus.value = ''
+  }
+}
+
 // 处理日期变化
-const handleDateChange = () => {
-  // TODO: 实现日期筛选逻辑
-  console.log('日期范围变化:', dateRange.value)
+const handleDateChange = async () => {
+  await fetchCalculationResults()
 }
 
 // 处理卫星选择变化
-const handleSatelliteChange = () => {
-  // TODO: 实现卫星筛选逻辑
-  console.log('源卫星:', selectedSourceSatellite.value)
-  console.log('目标卫星:', selectedTargetSatellite.value)
+const handleSatelliteChange = async () => {
+  await fetchCalculationResults()
 }
 
 // 处理矩阵选择变化
 const handleMatrixChange = () => {
   // TODO: 实现矩阵选择逻辑
   console.log('选择的矩阵:', selectedMatrixId.value)
-}
-
-// 处理批量计算
-const handleBatchCalculate = async () => {
-  if (!canCalculate.value) {
-    ElMessage.warning('请选择所有必要的计算参数')
-    return
-  }
-
-  calculating.value = true
-  calculationStatus.value = '正在计算中...'
-  
-  try {
-    // TODO: 实现批量计算逻辑
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    ElMessage.success('计算完成')
-  } catch (error) {
-    ElMessage.error('计算失败')
-  } finally {
-    calculating.value = false
-    calculationStatus.value = ''
-  }
 }
 
 // 获取精测矩阵列表
@@ -291,6 +363,15 @@ const fetchMatrixList = async () => {
     }))
   } catch (error) {
     ElMessage.error('获取精测矩阵列表失败')
+  }
+}
+
+// 获取卫星列表
+const fetchSatelliteList = async () => {
+  try {
+    satelliteList.value = await window.satellite.getAllSatelliteNames()
+  } catch (error) {
+    ElMessage.error('获取卫星列表失败')
   }
 }
 
@@ -346,9 +427,9 @@ const handleDeleteMatrix = async (id: string) => {
 }
 
 // 处理页码变化
-const handlePageChange = (newPage: number) => {
+const handlePageChange = async (newPage: number) => {
   page.value = newPage
-  // TODO: 实现分页加载逻辑
+  await fetchCalculationResults()
 }
 
 // 格式化角度
@@ -362,9 +443,13 @@ const formatTime = (row: any, column: any) => {
   return row.time || '-'
 }
 
-// 在组件挂载时获取矩阵列表
+// 在组件挂载时获取初始数据
 onMounted(async () => {
-  await fetchMatrixList()
+  await Promise.all([
+    fetchMatrixList(),
+    fetchSatelliteList(),
+    fetchCalculationResults()
+  ])
 })
 </script>
 
@@ -634,5 +719,27 @@ onMounted(async () => {
   display: flex;
   gap: 12px;
   margin-left: auto;
+}
+
+/* 添加计算结果对话框样式 */
+.calc-result-content {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.calc-result-content p {
+  margin: 16px 0;
+  font-size: 16px;
+  color: #606266;
+}
+
+.calc-result-content.error-message p {
+  color: #F56C6C;
+}
+
+.success-icon,
+.error-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
 }
 </style> 

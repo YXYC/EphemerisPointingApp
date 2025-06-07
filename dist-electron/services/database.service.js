@@ -179,7 +179,7 @@ class DatabaseService {
     const total = this.db.prepare(countQuery).get(...params.slice(0, params.length - 2)).total;
     return { data, total };
   }
-  getEphemerisResults(timeRange, sourceSatellite, targetSatellite) {
+  getEphemerisResults(timeRange, sourceSatellite, targetSatellite, page = 1, pageSize = 10) {
     let query = "SELECT * FROM ephemeris_results";
     const conditions = [];
     const params = [];
@@ -199,7 +199,15 @@ class DatabaseService {
       query += " WHERE " + conditions.join(" AND ");
     }
     query += " ORDER BY time DESC";
-    return this.db.prepare(query).all(...params);
+    query += " LIMIT ? OFFSET ?";
+    params.push(pageSize, (page - 1) * pageSize);
+    const data = this.db.prepare(query).all(...params);
+    let countQuery = "SELECT COUNT(*) as total FROM ephemeris_results";
+    if (conditions.length > 0) {
+      countQuery += " WHERE " + conditions.join(" AND ");
+    }
+    const total = this.db.prepare(countQuery).get(...params.slice(0, params.length - 2)).total;
+    return { data, total };
   }
   getMeasurementMatrices() {
     return this.db.prepare("SELECT * FROM measurement_matrices ORDER BY name").all();

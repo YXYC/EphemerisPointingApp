@@ -126,13 +126,32 @@
         </span>
       </template>
     </el-dialog>
+
+    <!-- 添加计算结果提示对话框 -->
+    <el-dialog
+      v-model="showCalcResultDialog"
+      title="计算结果"
+      width="400px"
+      :close-on-click-modal="false"
+    >
+      <div class="calc-result-content" :class="{ 'error-message': !calcResult.success }">
+        <el-icon v-if="calcResult.success" class="success-icon" color="#67C23A"><CircleCheckFilled /></el-icon>
+        <el-icon v-else class="error-icon" color="#F56C6C"><CircleCloseFilled /></el-icon>
+        <p>{{ calcResult.message }}</p>
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showCalcResultDialog = false">确定</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Warning } from '@element-plus/icons-vue'
+import { Warning, CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
 
 // 获取今天的日期字符串
 function getTodayStr() {
@@ -156,6 +175,16 @@ const page = ref(1)
 const pageSize = ref(10)
 const showDeleteDialog = ref(false)
 const deleting = ref(false)
+
+// 添加计算结果相关的状态
+const showCalcResultDialog = ref(false)
+const calcResult = ref<{
+  success: boolean
+  message: string
+}>({
+  success: false,
+  message: ''
+})
 
 // 查询方法
 const fetchSatelliteList = async () => {
@@ -518,6 +547,28 @@ onMounted(() => {
 .progress-dialog-content,
 .progress-text {
   display: none;
+}
+
+/* 添加计算结果对话框样式 */
+.calc-result-content {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.calc-result-content p {
+  margin: 16px 0;
+  font-size: 16px;
+  color: #606266;
+}
+
+.calc-result-content.error-message p {
+  color: #F56C6C;
+}
+
+.success-icon,
+.error-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
 }
 </style>
   

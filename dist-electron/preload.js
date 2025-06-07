@@ -18,5 +18,7 @@ electron.contextBridge.exposeInMainWorld("satellite", {
   calculateRelativeState: (params) => electron.ipcRenderer.invoke("satellite:calculateRelativeState", params),
   getMeasurementMatrices: () => electron.ipcRenderer.invoke("db:getMeasurementMatrices"),
   upsertMeasurementMatrix: (data) => electron.ipcRenderer.invoke("db:upsertMeasurementMatrix", data),
-  deleteMeasurementMatrix: (name) => electron.ipcRenderer.invoke("db:deleteMeasurementMatrix", name)
+  deleteMeasurementMatrix: (name) => electron.ipcRenderer.invoke("db:deleteMeasurementMatrix", name),
+  batchCalculate: (params) => electron.ipcRenderer.invoke("satellite:batchCalculate", params),
+  getEphemerisResults: (timeRange, sourceSatellite, targetSatellite, page = 1, pageSize = 10) => electron.ipcRenderer.invoke("db:getEphemerisResults", timeRange, sourceSatellite, targetSatellite, page, pageSize)
 });

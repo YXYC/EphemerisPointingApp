@@ -1,6 +1,7 @@
 import { app, ipcMain } from 'electron'
 import { WindowService } from './services/window.service'
 import { DatabaseService } from './services/database.service'
+import { BatchCalculationService } from './services/batch-calculation.service'
 import path from 'path'
 import { uploadAndParseExcel } from './services/upload.service'
 import { SatelliteProcessor, Vector3d, Quaternion } from './services/satellite-processor.service'
@@ -9,6 +10,7 @@ import { SatelliteProcessor, Vector3d, Quaternion } from './services/satellite-p
 function setupIpcHandlers() {
   const windowService = WindowService.getInstance()
   const dbService = DatabaseService.getInstance()
+  const batchCalculationService = BatchCalculationService.getInstance()
 
   // 窗口控制
   ipcMain.on('window:minimize', () => {
@@ -28,8 +30,8 @@ function setupIpcHandlers() {
     return dbService.upsertSatelliteData(data)
   })
 
-  ipcMain.handle('db:getEphemerisResults', (_, timeRange?: { start: string; end: string }, sourceSatellite?: string, targetSatellite?: string) => {
-    return dbService.getEphemerisResults(timeRange, sourceSatellite, targetSatellite)
+  ipcMain.handle('db:getEphemerisResults', (_, timeRange?: { start: string; end: string }, sourceSatellite?: string, targetSatellite?: string, page?: number, pageSize?: number) => {
+    return dbService.getEphemerisResults(timeRange, sourceSatellite, targetSatellite, page, pageSize)
   })
 
   ipcMain.handle('db:upsertEphemerisResult', (_, data) => {
@@ -94,6 +96,26 @@ function setupIpcHandlers() {
       distance,
       yaw,
       pitch
+    }
+  })
+
+  // 批量计算
+  ipcMain.handle('satellite:batchCalculate', async (_, params) => {
+    try {
+      const result = await batchCalculationService.batchCalculate(params)
+      return result  // 直接返回计算结果
+    } catch (error) {
+      console.error('批量计算失败:', {
+        error: error instanceof Error ? error.message : String(error),
+        params: {
+          startTime: params.startTime,
+          endTime: params.endTime,
+          sourceSatellite: params.sourceSatellite,
+          targetSatellite: params.targetSatellite,
+          matrixId: params.matrixId
+        }
+      })
+      throw error
     }
   })
 }

@@ -239,7 +239,13 @@ export class DatabaseService {
     return { data, total }
   }
 
-  public getEphemerisResults(timeRange?: { start: string; end: string }, sourceSatellite?: string, targetSatellite?: string) {
+  public getEphemerisResults(
+    timeRange?: { start: string; end: string }, 
+    sourceSatellite?: string, 
+    targetSatellite?: string,
+    page: number = 1,
+    pageSize: number = 10
+  ) {
     let query = 'SELECT * FROM ephemeris_results'
     const conditions = []
     const params = []
@@ -261,8 +267,18 @@ export class DatabaseService {
       query += ' WHERE ' + conditions.join(' AND ')
     }
     query += ' ORDER BY time DESC'
+    query += ' LIMIT ? OFFSET ?'
+    params.push(pageSize, (page - 1) * pageSize)
 
-    return this.db.prepare(query).all(...params)
+    const data = this.db.prepare(query).all(...params)
+
+    let countQuery = 'SELECT COUNT(*) as total FROM ephemeris_results'
+    if (conditions.length > 0) {
+      countQuery += ' WHERE ' + conditions.join(' AND ')
+    }
+    const total = (this.db.prepare(countQuery).get(...params.slice(0, params.length - 2)) as any).total
+
+    return { data, total }
   }
 
   public getMeasurementMatrices() {
