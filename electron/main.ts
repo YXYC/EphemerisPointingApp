@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron'
 import { WindowService } from './services/window.service'
 import { DatabaseService } from './services/database.service'
 import path from 'path'
+import { uploadAndParseExcel } from './services/upload.service'
 
 // 设置 IPC 监听器
 function setupIpcHandlers() {
@@ -22,10 +23,6 @@ function setupIpcHandlers() {
   })
 
   // 数据库操作
-  ipcMain.handle('db:getSatelliteData', (_, timeRange?: { start: string; end: string }, satellite?: string) => {
-    return dbService.getSatelliteData(timeRange, satellite)
-  })
-
   ipcMain.handle('db:upsertSatelliteData', (_, data) => {
     return dbService.upsertSatelliteData(data)
   })
@@ -56,6 +53,28 @@ function setupIpcHandlers() {
 
   ipcMain.handle('db:deleteMeasurementMatrix', (_, name: string) => {
     return dbService.deleteMeasurementMatrix(name)
+  })
+
+  ipcMain.handle('satellite:uploadExcel', async (_, { name, buffer }) => {
+    // 调用 uploadAndParseExcel 解析
+    const satelliteData = uploadAndParseExcel(buffer)
+    const dbService = DatabaseService.getInstance()
+    //此处报错可以忽略，已经可以插入null值
+    dbService.upsertSatelliteDataBatch(satelliteData)
+    return true
+  })
+
+  ipcMain.handle('db:getAllSatelliteNames', () => {
+    return dbService.getAllSatelliteNames()
+  })
+
+  ipcMain.handle('db:getSatelliteData', (_, timeRange, satellite, page, pageSize) => {
+    return dbService.getSatelliteData(timeRange, satellite, page, pageSize)
+  })
+
+  ipcMain.handle('db:clearAllTables', () => {
+    dbService.clearAllTables()
+    return true
   })
 }
 

@@ -4,8 +4,6 @@
       <div class="upload-bar">
         <el-select v-model="fileType" placeholder="选择文件类型" class="file-type-select">
           <el-option label="Excel 文件" value="excel" />
-          <el-option label="CSV 文件" value="csv" />
-          <el-option label="TXT 文件" value="txt" />
         </el-select>
         <el-upload
           class="upload-btn"
@@ -82,13 +80,12 @@
             empty-text="暂无数据"
             highlight-current-row
             style="width: 100%"
-            max-height="500"
           >
             <el-table-column prop="time" label="星历时间" :formatter="formatTime" align="center" min-width="140"/>
-            <el-table-column prop="satellite" label="卫星名称" align="center" min-width="110"/>
-            <el-table-column prop="pos_x" label="本星位置X" align="center" min-width="110"/>
-            <el-table-column prop="pos_y" label="本星位置Y" align="center" min-width="110"/>
-            <el-table-column prop="pos_z" label="本星位置Z" align="center" min-width="110"/>
+            <el-table-column prop="satellite_name" label="卫星名称" align="center" min-width="110"/>
+            <el-table-column prop="pos_x" label="本星位置X/km" align="center" min-width="110"/>
+            <el-table-column prop="pos_y" label="本星位置Y/km" align="center" min-width="110"/>
+            <el-table-column prop="pos_z" label="本星位置Z/km" align="center" min-width="110"/>
             <el-table-column prop="q0" label="本星姿态Q0" align="center" min-width="110"/>
             <el-table-column prop="q1" label="本星姿态Q1" align="center" min-width="110"/>
             <el-table-column prop="q2" label="本星姿态Q2" align="center" min-width="110"/>
@@ -133,14 +130,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Warning } from '@element-plus/icons-vue'
 
-// 状态定义
+// 获取今天的日期字符串
+function getTodayStr() {
+  const today = new Date()
+  const yyyy = today.getFullYear()
+  const mm = String(today.getMonth() + 1).padStart(2, '0')
+  const dd = String(today.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
 const fileType = ref('excel')
 const uploading = ref(false)
-const dateRange = ref<[string, string] | null>(null)
+// 默认时间范围为今天
+const todayStr = getTodayStr()
+const dateRange = ref<[string, string]>([todayStr, todayStr])
 const selectedSatellite = ref('')
 const satelliteList = ref<string[]>([])
 const tableData = ref<any[]>([])
@@ -150,33 +157,66 @@ const pageSize = ref(10)
 const showDeleteDialog = ref(false)
 const deleting = ref(false)
 
+// 查询方法
+const fetchSatelliteList = async () => {
+  satelliteList.value = await window.satellite.getAllSatelliteNames()
+}
+
+const fetchSatelliteData = async () => {
+  let timeRangeParam = null
+  if (dateRange.value && dateRange.value.length === 2) {
+    timeRangeParam = { start: dateRange.value[0], end: dateRange.value[1] }
+  }
+  const res = await window.satellite.getSatelliteData(
+    timeRangeParam,
+    selectedSatellite.value || undefined,
+    page.value,
+    pageSize.value
+  )
+  tableData.value = res.data
+  total.value = res.total
+}
+
 // 处理文件上传
-const handleFileChange = (file: any) => {
+const handleFileChange = async (file: any) => {
   if (!file) return
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error('文件过大，请拆分后上传（最大10MB）')
+    return
+  }
   uploading.value = true
-  // TODO: 实现文件上传逻辑
-  setTimeout(() => {
+  try {
+    // 读取文件为 ArrayBuffer
+    const buffer = await file.raw.arrayBuffer()
+    // 通过 preload 暴露的 API 调用
+    await window.satellite.uploadExcel(file.name, buffer)
+    ElMessage.success('文件上传并解析成功')
+    // 上传成功后，刷新卫星名称和表格
+    await fetchSatelliteList()
+    await fetchSatelliteData()
+  } catch (e) {
+    ElMessage.error('文件上传或解析失败')
+  } finally {
     uploading.value = false
-    ElMessage.success('文件上传成功')
-  }, 1000)
+  }
 }
 
 // 处理日期变化
 const handleDateChange = () => {
-  // TODO: 实现日期筛选逻辑
-  console.log('日期范围变化:', dateRange.value)
+  page.value = 1
+  fetchSatelliteData()
 }
 
 // 处理卫星选择变化
 const handleSatelliteChange = () => {
-  // TODO: 实现卫星筛选逻辑
-  console.log('选择的卫星:', selectedSatellite.value)
+  page.value = 1
+  fetchSatelliteData()
 }
 
 // 处理页码变化
 const handlePageChange = (newPage: number) => {
   page.value = newPage
-  // TODO: 实现分页加载逻辑
+  fetchSatelliteData()
 }
 
 // 处理删除点击
@@ -188,10 +228,12 @@ const handleDeleteClick = () => {
 const handleDeleteConfirm = async () => {
   deleting.value = true
   try {
-    // TODO: 实现删除逻辑
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    await window.satellite.clearAllTables()
     ElMessage.success('数据删除成功')
     showDeleteDialog.value = false
+    // 删除后刷新数据和卫星列表
+    await fetchSatelliteList()
+    await fetchSatelliteData()
   } catch (error) {
     ElMessage.error('删除失败')
   } finally {
@@ -203,17 +245,20 @@ const handleDeleteConfirm = async () => {
 const formatTime = (row: any, column: any) => {
   return row.time || '-'
 }
+
+// 页面加载时自动查询
+onMounted(() => {
+  fetchSatelliteList()
+  fetchSatelliteData()
+})
 </script>
 
 <style scoped>
 .browse-container {
   width: 100%;
-  height: 100%;
   padding: 0;
   margin: 0;
   background-color: #f5f7fa;
-  display: flex;
-  flex-direction: column;
 }
 
 .browse-card {
@@ -223,10 +268,6 @@ const formatTime = (row: any, column: any) => {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
   padding: 32px;
   background: #ffffff;
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - 80px);
-  flex: 1;
 }
 
 .upload-bar {
@@ -292,20 +333,15 @@ const formatTime = (row: any, column: any) => {
 }
 
 .table-area {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
   margin-top: 16px;
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .table-container {
-  max-height: 500px;
-  overflow: auto;
+  overflow: visible;
 }
 
 /* 确保表格容器可以滚动 */
@@ -424,7 +460,6 @@ const formatTime = (row: any, column: any) => {
 @media (max-width: 1400px) {
   .browse-card {
     margin: 16px;
-    height: calc(100vh - 72px);
   }
 }
 
@@ -432,7 +467,6 @@ const formatTime = (row: any, column: any) => {
   .browse-card {
     margin: 12px;
     padding: 20px;
-    height: calc(100vh - 64px);
   }
   
   .table-area {

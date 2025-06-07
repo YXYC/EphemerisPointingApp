@@ -20,35 +20,35 @@ class DatabaseService {
     this.db.pragma("foreign_keys = ON");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS satellite_data (
-        time TEXT NOT NULL,
-        satellite_name TEXT NOT NULL,
-        pos_x REAL NOT NULL,
-        pos_y REAL NOT NULL,
-        pos_z REAL NOT NULL,
-        q0 REAL NOT NULL,
-        q1 REAL NOT NULL,
-        q2 REAL NOT NULL,
-        q3 REAL NOT NULL,
+        time TEXT,
+        satellite_name TEXT,
+        pos_x REAL,
+        pos_y REAL,
+        pos_z REAL,
+        q0 REAL,
+        q1 REAL,
+        q2 REAL,
+        q3 REAL,
         PRIMARY KEY (time, satellite_name)
       )
     `);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS ephemeris_results (
-        source_satellite TEXT NOT NULL,
-        target_satellite TEXT NOT NULL,
-        time TEXT NOT NULL,
-        distance REAL NOT NULL,
-        yaw REAL NOT NULL,
-        pitch REAL NOT NULL,
+        source_satellite TEXT,
+        target_satellite TEXT,
+        time TEXT,
+        distance REAL,
+        yaw REAL,
+        pitch REAL,
         PRIMARY KEY (time, source_satellite, target_satellite)
       )
     `);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS measurement_matrices (
         name TEXT PRIMARY KEY,
-        roll_urad REAL NOT NULL,
-        pitch_urad REAL NOT NULL,
-        yaw_urad REAL NOT NULL
+        roll_urad REAL,
+        pitch_urad REAL,
+        yaw_urad REAL
       )
     `);
   }
@@ -78,6 +78,37 @@ class DatabaseService {
       data.q2,
       data.q3
     );
+  }
+  upsertSatelliteDataBatch(dataArr) {
+    const stmt = this.db.prepare(`
+      INSERT INTO satellite_data (
+        time, satellite_name, pos_x, pos_y, pos_z, q0, q1, q2, q3
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(time, satellite_name) DO UPDATE SET
+        pos_x = excluded.pos_x,
+        pos_y = excluded.pos_y,
+        pos_z = excluded.pos_z,
+        q0 = excluded.q0,
+        q1 = excluded.q1,
+        q2 = excluded.q2,
+        q3 = excluded.q3
+    `);
+    const insertMany = this.db.transaction((rows) => {
+      for (const row of rows) {
+        stmt.run(
+          row.time,
+          row.satellite_name,
+          row.pos_x,
+          row.pos_y,
+          row.pos_z,
+          row.q0,
+          row.q1,
+          row.q2,
+          row.q3
+        );
+      }
+    });
+    insertMany(dataArr);
   }
   // 星历计算结果相关方法
   upsertEphemerisResult(data) {
@@ -118,7 +149,11 @@ class DatabaseService {
     );
   }
   // 查询方法
-  getSatelliteData(timeRange, satellite) {
+  getAllSatelliteNames() {
+    const rows = this.db.prepare("SELECT DISTINCT satellite_name FROM satellite_data").all();
+    return rows.map((row) => row.satellite_name);
+  }
+  getSatelliteData(timeRange, satellite, page = 1, pageSize = 10) {
     let query = "SELECT * FROM satellite_data";
     const conditions = [];
     const params = [];
@@ -133,8 +168,16 @@ class DatabaseService {
     if (conditions.length > 0) {
       query += " WHERE " + conditions.join(" AND ");
     }
-    query += " ORDER BY time DESC";
-    return this.db.prepare(query).all(...params);
+    query += " ORDER BY time ASC";
+    query += " LIMIT ? OFFSET ?";
+    params.push(pageSize, (page - 1) * pageSize);
+    const data = this.db.prepare(query).all(...params);
+    let countQuery = "SELECT COUNT(*) as total FROM satellite_data";
+    if (conditions.length > 0) {
+      countQuery += " WHERE " + conditions.join(" AND ");
+    }
+    const total = this.db.prepare(countQuery).get(...params.slice(0, params.length - 2)).total;
+    return { data, total };
   }
   getEphemerisResults(timeRange, sourceSatellite, targetSatellite) {
     let query = "SELECT * FROM ephemeris_results";
@@ -174,6 +217,11 @@ class DatabaseService {
   // 关闭数据库连接
   close() {
     this.db.close();
+  }
+  clearAllTables() {
+    this.db.prepare("DELETE FROM satellite_data").run();
+    this.db.prepare("DELETE FROM ephemeris_results").run();
+    this.db.prepare("DELETE FROM measurement_matrices").run();
   }
 }
 exports.DatabaseService = DatabaseService;
