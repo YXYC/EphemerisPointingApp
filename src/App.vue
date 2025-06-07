@@ -4,7 +4,7 @@
     <div class="custom-titlebar">
       <div class="titlebar-left">
         <el-icon><svg viewBox="0 0 1024 1024"><circle cx="512" cy="512" r="512" fill="#409EFF"/></svg></el-icon>
-        <span class="title-text">星历数据管理</span>
+        <span class="title-text">星历计算工具</span>
         <!-- 自定义导航菜单 -->
         <div class="titlebar-menu">
           <div 
@@ -106,12 +106,49 @@ const close = () => window.windowControl.close()
 
 // 提示面板状态
 const showTips = ref(true)
-const tipsContent = [
-  '欢迎使用星历数据管理系统！',
-  '点击左侧菜单可以切换不同的功能模块。',
-  '您可以通过右上角的按钮最小化、最大化或关闭窗口。',
-  '提示面板可以随时展开或收起，为您提供操作指引。'
-]
+
+// 根据路由获取提示内容
+const tipsContent = computed(() => {
+  const path = route.path
+  if (path.startsWith('/ephemeris')) {
+    // 根据具体路径区分单次计算和批量计算
+    if (path === '/ephemeris/batch') {
+      return [
+        '批量计算功能说明：',
+        '选择时间范围和卫星对，系统将自动进行时间对齐进行星历指向计算，具体逻辑见帮助文档',
+        '该页面可以管理精测结果：上传 or 删除',
+        '计算结果和精测结果会持久化存储在本地',
+        '进行重复计算会覆盖上一次的结果',
+        '可以选择列表或者图表对指向结果进行计算',
+        '建议批量计算时选择合适的时间范围，避免数据量过大。',
+        '(点击按钮可以关闭小贴士)'
+      ]
+    } else {
+      // 单次计算页面
+      return [
+        '单次计算功能说明：',
+        '只是一个简单的计算器，不会存储数据',
+        '适合用于验证计算参数和结果',
+        '(点击按钮可以关闭小贴士)'
+      ]
+    }
+  } else if (path === '/help') {
+    return [
+      '一个基本使用流程的介绍',
+      '(点击按钮可以关闭小贴士)'
+    ]
+  } else {
+    // 默认数据管理页面的提示
+    return [
+      '数据管理功能说明：',
+      '目前只支持上传 Excel 格式的卫星数据文件，具体格式见帮助文档',
+      '可以按时间范围和卫星名称筛选数据。',
+      '支持清空`所有`数据',
+      '注意超过10M的文件无法上传',
+      '(点击按钮可以关闭小贴士)'
+    ]
+  }
+})
 </script>
 
 <style>

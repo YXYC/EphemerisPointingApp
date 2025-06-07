@@ -47,9 +47,29 @@ function setupIpcHandlers() {
     try {
       const satelliteData = services_upload_service.uploadAndParseExcel(buffer);
       const dbService2 = services_database_service.DatabaseService.getInstance();
-      const validData = satelliteData.filter(
-        (item) => item.time !== null && item.satellite_name !== null && typeof item.pos_x === "number" && typeof item.pos_y === "number" && typeof item.pos_z === "number" && typeof item.q0 === "number" && typeof item.q1 === "number" && typeof item.q2 === "number" && typeof item.q3 === "number"
-      );
+      console.log("解析到的数据行数:", satelliteData.length);
+      if (satelliteData.length > 0) {
+        console.log("第一行数据示例:", JSON.stringify(satelliteData[0], null, 2));
+      }
+      const validData = satelliteData.map((item) => {
+        return {
+          time: item.time ?? null,
+          satellite_name: item.satellite_name ?? null,
+          pos_x: typeof item.pos_x === "number" ? item.pos_x : null,
+          pos_y: typeof item.pos_y === "number" ? item.pos_y : null,
+          pos_z: typeof item.pos_z === "number" ? item.pos_z : null,
+          q0: typeof item.q0 === "number" ? item.q0 : null,
+          q1: typeof item.q1 === "number" ? item.q1 : null,
+          q2: typeof item.q2 === "number" ? item.q2 : null,
+          q3: typeof item.q3 === "number" ? item.q3 : null
+        };
+      }).filter((item) => {
+        return Object.values(item).some((value) => value !== null);
+      });
+      console.log("验证后的数据行数:", validData.length);
+      if (validData.length > 0) {
+        console.log("验证后第一行数据示例:", JSON.stringify(validData[0], null, 2));
+      }
       await dbService2.upsertSatelliteDataBatch(validData);
       return true;
     } catch (error) {

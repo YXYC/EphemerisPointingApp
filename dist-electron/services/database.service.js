@@ -90,6 +90,9 @@ class DatabaseService {
     );
   }
   upsertSatelliteDataBatch(dataArr) {
+    const validData = dataArr.filter(
+      (item) => item.time !== null && item.satellite_name !== null
+    );
     const stmt = this.db.prepare(`
       INSERT INTO satellite_data (
         time, satellite_name, pos_x, pos_y, pos_z, q0, q1, q2, q3
@@ -111,18 +114,18 @@ class DatabaseService {
           stmt.run(
             row.time,
             row.satellite_name,
-            row.pos_x,
-            row.pos_y,
-            row.pos_z,
-            row.q0,
-            row.q1,
-            row.q2,
-            row.q3
+            row.pos_x ?? null,
+            row.pos_y ?? null,
+            row.pos_z ?? null,
+            row.q0 ?? null,
+            row.q1 ?? null,
+            row.q2 ?? null,
+            row.q3 ?? null
           );
         }
       }
     });
-    insertMany(dataArr);
+    insertMany(validData);
   }
   // 星历计算结果相关方法
   upsertEphemerisResult(data) {

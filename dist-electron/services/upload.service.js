@@ -26625,17 +26625,32 @@ function uploadAndParseExcel(buffer) {
   const worksheet = workbook.Sheets[sheetName];
   const jsonData = utils.sheet_to_json(worksheet, { header: 1 });
   const rows = jsonData.slice(1);
-  const satelliteData = rows.map((row) => ({
-    time: row[0] !== void 0 ? String(row[0]) : null,
-    satellite_name: row[1] !== void 0 ? String(row[1]) : null,
-    pos_x: row[2] !== void 0 ? Number(row[2]) : null,
-    pos_y: row[3] !== void 0 ? Number(row[3]) : null,
-    pos_z: row[4] !== void 0 ? Number(row[4]) : null,
-    q0: row[5] !== void 0 ? Number(row[5]) : null,
-    q1: row[6] !== void 0 ? Number(row[6]) : null,
-    q2: row[7] !== void 0 ? Number(row[7]) : null,
-    q3: row[8] !== void 0 ? Number(row[8]) : null
-  }));
+  const defaultRow = {
+    time: null,
+    satellite_name: null,
+    pos_x: null,
+    pos_y: null,
+    pos_z: null,
+    q0: null,
+    q1: null,
+    q2: null,
+    q3: null
+  };
+  const satelliteData = rows.map((row) => {
+    const data = { ...defaultRow };
+    if (row[0] !== void 0 && row[0] !== null) data.time = String(row[0]);
+    if (row[1] !== void 0 && row[1] !== null) data.satellite_name = String(row[1]);
+    if (row[2] !== void 0 && row[2] !== null) data.pos_x = Number(row[2]);
+    if (row[3] !== void 0 && row[3] !== null) data.pos_y = Number(row[3]);
+    if (row[4] !== void 0 && row[4] !== null) data.pos_z = Number(row[4]);
+    if (row[5] !== void 0 && row[5] !== null) data.q0 = Number(row[5]);
+    if (row[6] !== void 0 && row[6] !== null) data.q1 = Number(row[6]);
+    if (row[7] !== void 0 && row[7] !== null) data.q2 = Number(row[7]);
+    if (row[8] !== void 0 && row[8] !== null) data.q3 = Number(row[8]);
+    return data;
+  }).filter((item) => {
+    return !Object.values(item).every((value) => value === null);
+  });
   return satelliteData;
 }
 exports.uploadAndParseExcel = uploadAndParseExcel;

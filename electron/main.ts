@@ -64,28 +64,36 @@ function setupIpcHandlers() {
       const satelliteData = uploadAndParseExcel(buffer)
       const dbService = DatabaseService.getInstance()
       
-      // 过滤掉无效数据
-      const validData = satelliteData.filter(item => 
-        item.time !== null && 
-        item.satellite_name !== null && 
-        typeof item.pos_x === 'number' && 
-        typeof item.pos_y === 'number' && 
-        typeof item.pos_z === 'number' &&
-        typeof item.q0 === 'number' &&
-        typeof item.q1 === 'number' &&
-        typeof item.q2 === 'number' &&
-        typeof item.q3 === 'number'
-      ) as {
-        time: string
-        satellite_name: string
-        pos_x: number
-        pos_y: number
-        pos_z: number
-        q0: number
-        q1: number
-        q2: number
-        q3: number
-      }[]
+      // 添加数据验证日志
+      console.log('解析到的数据行数:', satelliteData.length)
+      if (satelliteData.length > 0) {
+        console.log('第一行数据示例:', JSON.stringify(satelliteData[0], null, 2))
+      }
+
+      // 验证数据完整性
+      const validData = satelliteData.map(item => {
+        // 确保所有必需字段都存在，如果不存在则使用 null
+        return {
+          time: item.time ?? null,
+          satellite_name: item.satellite_name ?? null,
+          pos_x: typeof item.pos_x === 'number' ? item.pos_x : null,
+          pos_y: typeof item.pos_y === 'number' ? item.pos_y : null,
+          pos_z: typeof item.pos_z === 'number' ? item.pos_z : null,
+          q0: typeof item.q0 === 'number' ? item.q0 : null,
+          q1: typeof item.q1 === 'number' ? item.q1 : null,
+          q2: typeof item.q2 === 'number' ? item.q2 : null,
+          q3: typeof item.q3 === 'number' ? item.q3 : null
+        }
+      }).filter(item => {
+        // 只保留至少有一个非空字段的行
+        return Object.values(item).some(value => value !== null)
+      })
+
+      // 添加验证后的数据日志
+      console.log('验证后的数据行数:', validData.length)
+      if (validData.length > 0) {
+        console.log('验证后第一行数据示例:', JSON.stringify(validData[0], null, 2))
+      }
 
       // 批量插入有效数据
       await dbService.upsertSatelliteDataBatch(validData)

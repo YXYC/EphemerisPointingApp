@@ -24,11 +24,6 @@ const routes = [
         path: 'batch',
         name: 'EphemerisBatch',
         component: () => import('../views/ephemeris/BatchCalc.vue')
-      },
-      {
-        path: 'excel',
-        name: 'EphemerisExcel',
-        component: () => import('../views/ephemeris/ExcelCalc.vue')
       }
     ]
   },

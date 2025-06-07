@@ -4,7 +4,6 @@
       <el-tabs v-model="activeTab" @tab-click="onTabClick" class="ephemeris-tabs">
         <el-tab-pane label="单次计算" name="single" />
         <el-tab-pane label="批量计算" name="batch" />
-        <el-tab-pane label="导入excel计算" name="excel" />
       </el-tabs>
       <router-view v-slot="{ Component }">
         <component :is="Component" />

@@ -18,7 +18,7 @@
       <div class="filter-item">
         <el-select
           v-model="selectedSourceSatellite"
-          placeholder="本星"
+          :placeholder="selectedSourceSatellite ? selectedSourceSatellite : '本星'"
           @change="handleSatelliteChange"
           style="width: 200px;"
         >
@@ -33,7 +33,7 @@
       <div class="filter-item">
         <el-select
           v-model="selectedTargetSatellite"
-          placeholder="对星"
+          :placeholder="selectedTargetSatellite ? selectedTargetSatellite : '对星'"
           @change="handleSatelliteChange"
           style="width: 200px;"
         >
@@ -407,11 +407,6 @@ const fetchMatrixList = async () => {
 const fetchSatelliteList = async () => {
   try {
     satelliteList.value = await window.satellite.getAllSatelliteNames()
-    // 设置默认值为第一个卫星
-    if (satelliteList.value.length > 0) {
-      selectedSourceSatellite.value = satelliteList.value[0]
-      selectedTargetSatellite.value = satelliteList.value[0]
-    }
   } catch (error) {
     ElMessage.error('获取卫星列表失败')
   }

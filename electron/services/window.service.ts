@@ -21,8 +21,9 @@ export class WindowService {
 
     this.mainWindow = new BrowserWindow({
       width: 1000,
-      height: 600,
+      height: 615,
       frame: false, // 移除默认标题栏
+      title: '星历计算工具', // 设置窗口标题
       webPreferences: {
         preload: join(__dirname, '../preload.js'),
         nodeIntegration: false,
