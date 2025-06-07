@@ -38,11 +38,11 @@ const onTabClick = (tab: any) => {
 <style scoped>
 .ephemeris-container {
   width: 100%;
-  min-height: 100vh;
   background-color: #f5f7fa;
   display: flex;
   flex-direction: column;
 }
+
 .ephemeris-card {
   max-width: 1400px;
   margin: 20px auto;
@@ -52,9 +52,8 @@ const onTabClick = (tab: any) => {
   background: #ffffff;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 80px);
-  flex: 1;
 }
+
 .ephemeris-tabs {
   margin-bottom: 0;
   background: transparent;
