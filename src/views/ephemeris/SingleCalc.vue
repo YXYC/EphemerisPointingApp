@@ -4,8 +4,7 @@
     <div class="notebook-body">
       <form class="notebook-form" @submit.prevent="calculate">
         <div class="notebook-row-group">
-          <div class="notebook-row-group-title">卫星位置</div>
-          <div class="notebook-row-group-title">卫星姿态</div>
+          <div class="notebook-row notebook-row-title">本星位置</div>
           <div class="notebook-row-group-content">
             <div class="notebook-row-col">
               <div class="notebook-row">
@@ -39,6 +38,9 @@
                 <span class="unit">km</span>
               </div>
             </div>
+          </div>
+          <div class="notebook-row notebook-row-title">本星姿态</div>
+          <div class="notebook-row-group-content">
             <div class="notebook-row-col">
               <div class="notebook-row">
                 <label>W：</label>
@@ -79,7 +81,7 @@
             </div>
           </div>
         </div>
-        <div class="notebook-row notebook-row-title">目标位置</div>
+        <div class="notebook-row notebook-row-title">对星位置</div>
         <div class="notebook-row">
           <label>X：</label>
           <input 
@@ -157,7 +159,7 @@
         <div class="result-content">
           <div v-if="calculationResult" class="result-items">
             <div class="result-item">
-              <span class="result-label">卫星到目标距离：</span>
+              <span class="result-label">本星到对星的距离：</span>
               <span class="result-value">{{ calculationResult.distance.toFixed(6) }} km</span>
             </div>
             <div class="result-item">
@@ -228,24 +230,41 @@ const handleInput = (e: Event, setter: (value: string) => void) => {
 
 // 计算函数
 const calculate = async () => {
-  // 验证输入
   if (!validateInput()) {
     ElMessage.warning('请填写所有必要的计算参数')
     return
   }
-
   loading.value = true
   try {
-    // TODO: 实现实际的计算逻辑
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    // 模拟计算结果
-    calculationResult.value = {
-      distance: 1234.5678,
-      yaw: 45.6789,
-      pitch: 30.1234
+    // 组装参数
+    const params = {
+      satellitePos: {
+        x: Number(form.satellitePosition.x),
+        y: Number(form.satellitePosition.y),
+        z: Number(form.satellitePosition.z)
+      },
+      satelliteAtt: {
+        w: Number(form.satelliteAttitude.w),
+        x: Number(form.satelliteAttitude.x),
+        y: Number(form.satelliteAttitude.y),
+        z: Number(form.satelliteAttitude.z)
+      },
+      targetPos: {
+        x: Number(form.targetPosition.x),
+        y: Number(form.targetPosition.y),
+        z: Number(form.targetPosition.z)
+      },
+      roll_urad: Number(form.measurementMatrix.roll),
+      pitch_urad: Number(form.measurementMatrix.pitch),
+      yaw_urad: Number(form.measurementMatrix.yaw)
     }
-    
+    // 调用主进程计算
+    const result = await window.satellite.calculateRelativeState(params)
+    calculationResult.value = {
+      distance: result.distance,
+      yaw: result.yaw * 180 / Math.PI,   // 弧度转角度
+      pitch: result.pitch * 180 / Math.PI
+    }
     ElMessage.success('计算完成')
   } catch (error) {
     ElMessage.error('计算失败')
@@ -283,14 +302,12 @@ const validateInput = () => {
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
   padding: 32px 24px 24px 24px;
   margin: 0 auto 32px auto;
-  max-width: 1200px;
+  
   min-width: 0;
   width: 100%;
   font-family: 'Comic Sans MS', 'Marker Felt', cursive, sans-serif;
   position: relative;
   overflow: hidden;
-  max-height: 80vh;
-  overflow-y: auto;
 }
 /* 去掉左侧红线 */
 .notebook-panel::after {
@@ -365,10 +382,12 @@ const validateInput = () => {
   font-family: inherit;
   transition: border-color 0.2s;
 }
+
 .notebook-input:focus {
   border-bottom: 1.5px solid #2196f3;
   background: #f5faff;
 }
+
 .notebook-row-title {
   font-size: 18px;
   color: #2196f3;
@@ -460,7 +479,20 @@ const validateInput = () => {
   letter-spacing: 1px;
   border-bottom: none;
   text-align: center;
+  position: relative;
 }
+
+.notebook-row-group-title::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 2px;
+  background: #b3e5fc;
+}
+
 .notebook-row-group-content {
   display: flex;
   gap: 32px;

@@ -25,5 +25,13 @@ contextBridge.exposeInMainWorld('satellite', {
     pageSize: number = 10
   ) => ipcRenderer.invoke('db:getSatelliteData', timeRange, satellite, page, pageSize),
   getAllSatelliteNames: () => ipcRenderer.invoke('db:getAllSatelliteNames'),
-  clearAllTables: () => ipcRenderer.invoke('db:clearAllTables')
+  clearAllTables: () => ipcRenderer.invoke('db:clearAllTables'),
+  calculateRelativeState: (params: {
+    satellitePos?: { x?: number, y?: number, z?: number }
+    satelliteAtt?: { w?: number, x?: number, y?: number, z?: number }
+    targetPos?: { x?: number, y?: number, z?: number }
+    roll_urad?: number
+    pitch_urad?: number
+    yaw_urad?: number
+  }) => ipcRenderer.invoke('satellite:calculateRelativeState', params)
 }) 

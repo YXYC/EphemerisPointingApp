@@ -14,5 +14,6 @@ electron.contextBridge.exposeInMainWorld("satellite", {
   uploadExcel: (name, buffer) => electron.ipcRenderer.invoke("satellite:uploadExcel", { name, buffer }),
   getSatelliteData: (timeRange, satellite, page = 1, pageSize = 10) => electron.ipcRenderer.invoke("db:getSatelliteData", timeRange, satellite, page, pageSize),
   getAllSatelliteNames: () => electron.ipcRenderer.invoke("db:getAllSatelliteNames"),
-  clearAllTables: () => electron.ipcRenderer.invoke("db:clearAllTables")
+  clearAllTables: () => electron.ipcRenderer.invoke("db:clearAllTables"),
+  calculateRelativeState: (params) => electron.ipcRenderer.invoke("satellite:calculateRelativeState", params)
 });

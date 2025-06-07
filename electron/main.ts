@@ -3,6 +3,7 @@ import { WindowService } from './services/window.service'
 import { DatabaseService } from './services/database.service'
 import path from 'path'
 import { uploadAndParseExcel } from './services/upload.service'
+import { SatelliteProcessor, Vector3d, Quaternion } from './services/satellite-processor.service'
 
 // 设置 IPC 监听器
 function setupIpcHandlers() {
@@ -75,6 +76,25 @@ function setupIpcHandlers() {
   ipcMain.handle('db:clearAllTables', () => {
     dbService.clearAllTables()
     return true
+  })
+
+  ipcMain.handle('satellite:calculateRelativeState', (_, params) => {
+    // 允许参数为空，自动用默认值
+    const processor = new SatelliteProcessor()
+    processor.setSatelliteState(
+      new Vector3d(params?.satellitePos?.x, params?.satellitePos?.y, params?.satellitePos?.z),
+      new Quaternion(params?.satelliteAtt?.w, params?.satelliteAtt?.x, params?.satelliteAtt?.y, params?.satelliteAtt?.z)
+    )
+    processor.setTargetPosition(
+      new Vector3d(params?.targetPos?.x, params?.targetPos?.y, params?.targetPos?.z)
+    )
+    processor.setMeasurementMatrix(params?.roll_urad, params?.pitch_urad, params?.yaw_urad)
+    const { distance, yaw, pitch } = processor.calculateRelativeState()
+    return {
+      distance,
+      yaw,
+      pitch
+    }
   })
 }
 
