@@ -15,5 +15,8 @@ electron.contextBridge.exposeInMainWorld("satellite", {
   getSatelliteData: (timeRange, satellite, page = 1, pageSize = 10) => electron.ipcRenderer.invoke("db:getSatelliteData", timeRange, satellite, page, pageSize),
   getAllSatelliteNames: () => electron.ipcRenderer.invoke("db:getAllSatelliteNames"),
   clearAllTables: () => electron.ipcRenderer.invoke("db:clearAllTables"),
-  calculateRelativeState: (params) => electron.ipcRenderer.invoke("satellite:calculateRelativeState", params)
+  calculateRelativeState: (params) => electron.ipcRenderer.invoke("satellite:calculateRelativeState", params),
+  getMeasurementMatrices: () => electron.ipcRenderer.invoke("db:getMeasurementMatrices"),
+  upsertMeasurementMatrix: (data) => electron.ipcRenderer.invoke("db:upsertMeasurementMatrix", data),
+  deleteMeasurementMatrix: (name) => electron.ipcRenderer.invoke("db:deleteMeasurementMatrix", name)
 });

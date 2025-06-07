@@ -203,7 +203,7 @@
 </template> 
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 
 // 状态定义
@@ -278,19 +278,71 @@ const handleBatchCalculate = async () => {
   }
 }
 
+// 获取精测矩阵列表
+const fetchMatrixList = async () => {
+  try {
+    const matrices = await window.satellite.getMeasurementMatrices()
+    matrixList.value = matrices.map((matrix: any) => ({
+      id: matrix.name,
+      name: matrix.name,
+      roll: matrix.roll_urad,
+      pitch: matrix.pitch_urad,
+      yaw: matrix.yaw_urad
+    }))
+  } catch (error) {
+    ElMessage.error('获取精测矩阵列表失败')
+  }
+}
+
 // 处理添加矩阵
-const handleAddMatrix = () => {
-  // TODO: 实现添加矩阵逻辑
-  console.log('添加矩阵:', newMatrix.value)
-  ElMessage.success('矩阵添加成功')
-  showAddMatrixDialog.value = false
+const handleAddMatrix = async () => {
+  if (!newMatrix.value.name) {
+    ElMessage.warning('请输入矩阵名称')
+    return
+  }
+
+  const roll = parseFloat(newMatrix.value.roll)
+  const pitch = parseFloat(newMatrix.value.pitch)
+  const yaw = parseFloat(newMatrix.value.yaw)
+
+  if (isNaN(roll) || isNaN(pitch) || isNaN(yaw)) {
+    ElMessage.warning('请输入有效的角度值')
+    return
+  }
+
+  try {
+    await window.satellite.upsertMeasurementMatrix({
+      name: newMatrix.value.name,
+      roll_urad: roll,
+      pitch_urad: pitch,
+      yaw_urad: yaw
+    })
+    
+    ElMessage.success('矩阵添加成功')
+    showAddMatrixDialog.value = false
+    // 重置表单
+    newMatrix.value = {
+      name: '',
+      roll: '',
+      pitch: '',
+      yaw: ''
+    }
+    // 刷新列表
+    await fetchMatrixList()
+  } catch (error) {
+    ElMessage.error('矩阵添加失败')
+  }
 }
 
 // 处理删除矩阵
-const handleDeleteMatrix = (id: string) => {
-  // TODO: 实现删除矩阵逻辑
-  console.log('删除矩阵:', id)
-  ElMessage.success('矩阵删除成功')
+const handleDeleteMatrix = async (id: string) => {
+  try {
+    await window.satellite.deleteMeasurementMatrix(id)
+    ElMessage.success('矩阵删除成功')
+    await fetchMatrixList()
+  } catch (error) {
+    ElMessage.error('矩阵删除失败')
+  }
 }
 
 // 处理页码变化
@@ -309,6 +361,11 @@ const formatAngle = (row: any, column: any) => {
 const formatTime = (row: any, column: any) => {
   return row.time || '-'
 }
+
+// 在组件挂载时获取矩阵列表
+onMounted(async () => {
+  await fetchMatrixList()
+})
 </script>
 
 <style scoped>

@@ -19,6 +19,19 @@ declare global {
         pitch_urad?: number
         yaw_urad?: number
       }) => Promise<{ distance: number, yaw: number, pitch: number }>
+      getMeasurementMatrices: () => Promise<Array<{
+        name: string
+        roll_urad: number
+        pitch_urad: number
+        yaw_urad: number
+      }>>
+      upsertMeasurementMatrix: (data: {
+        name: string
+        roll_urad: number
+        pitch_urad: number
+        yaw_urad: number
+      }) => Promise<any>
+      deleteMeasurementMatrix: (name: string) => Promise<any>
     }
   }
 }

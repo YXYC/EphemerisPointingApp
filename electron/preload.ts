@@ -33,5 +33,46 @@ contextBridge.exposeInMainWorld('satellite', {
     roll_urad?: number
     pitch_urad?: number
     yaw_urad?: number
-  }) => ipcRenderer.invoke('satellite:calculateRelativeState', params)
-}) 
+  }) => ipcRenderer.invoke('satellite:calculateRelativeState', params),
+  getMeasurementMatrices: () => ipcRenderer.invoke('db:getMeasurementMatrices'),
+  upsertMeasurementMatrix: (data: {
+    name: string
+    roll_urad: number
+    pitch_urad: number
+    yaw_urad: number
+  }) => ipcRenderer.invoke('db:upsertMeasurementMatrix', data),
+  deleteMeasurementMatrix: (name: string) => ipcRenderer.invoke('db:deleteMeasurementMatrix', name)
+})
+
+// 添加类型声明
+declare global {
+  interface Window {
+    satellite: {
+      uploadExcel: (name: string, buffer: ArrayBuffer) => Promise<boolean>
+      getSatelliteData: (
+        timeRange?: { start: string; end: string },
+        satellite?: string,
+        page?: number,
+        pageSize?: number
+      ) => Promise<{ data: any[]; total: number }>
+      getAllSatelliteNames: () => Promise<string[]>
+      clearAllTables: () => Promise<boolean>
+      calculateRelativeState: (params: {
+        satellitePos?: { x?: number, y?: number, z?: number }
+        satelliteAtt?: { w?: number, x?: number, y?: number, z?: number }
+        targetPos?: { x?: number, y?: number, z?: number }
+        roll_urad?: number
+        pitch_urad?: number
+        yaw_urad?: number
+      }) => Promise<{ distance: number; yaw: number; pitch: number }>
+      getMeasurementMatrices: () => Promise<any[]>
+      upsertMeasurementMatrix: (data: {
+        name: string
+        roll_urad: number
+        pitch_urad: number
+        yaw_urad: number
+      }) => Promise<any>
+      deleteMeasurementMatrix: (name: string) => Promise<any>
+    }
+  }
+} 
