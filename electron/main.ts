@@ -59,12 +59,41 @@ function setupIpcHandlers() {
   })
 
   ipcMain.handle('satellite:uploadExcel', async (_, { name, buffer }) => {
-    // 调用 uploadAndParseExcel 解析
-    const satelliteData = uploadAndParseExcel(buffer)
-    const dbService = DatabaseService.getInstance()
-    //此处报错可以忽略，已经可以插入null值
-    dbService.upsertSatelliteDataBatch(satelliteData)
-    return true
+    try {
+      // 调用 uploadAndParseExcel 解析
+      const satelliteData = uploadAndParseExcel(buffer)
+      const dbService = DatabaseService.getInstance()
+      
+      // 过滤掉无效数据
+      const validData = satelliteData.filter(item => 
+        item.time !== null && 
+        item.satellite_name !== null && 
+        typeof item.pos_x === 'number' && 
+        typeof item.pos_y === 'number' && 
+        typeof item.pos_z === 'number' &&
+        typeof item.q0 === 'number' &&
+        typeof item.q1 === 'number' &&
+        typeof item.q2 === 'number' &&
+        typeof item.q3 === 'number'
+      ) as {
+        time: string
+        satellite_name: string
+        pos_x: number
+        pos_y: number
+        pos_z: number
+        q0: number
+        q1: number
+        q2: number
+        q3: number
+      }[]
+
+      // 批量插入有效数据
+      await dbService.upsertSatelliteDataBatch(validData)
+      return true
+    } catch (error) {
+      console.error('上传Excel文件失败:', error)
+      throw error
+    }
   })
 
   ipcMain.handle('db:getAllSatelliteNames', () => {
@@ -100,22 +129,45 @@ function setupIpcHandlers() {
   })
 
   // 批量计算
-  ipcMain.handle('satellite:batchCalculate', async (_, params) => {
+  ipcMain.handle('satellite:batchCalculate', async (event, params) => {
     try {
-      const result = await batchCalculationService.batchCalculate(params)
-      return result  // 直接返回计算结果
-    } catch (error) {
-      console.error('批量计算失败:', {
-        error: error instanceof Error ? error.message : String(error),
-        params: {
-          startTime: params.startTime,
-          endTime: params.endTime,
-          sourceSatellite: params.sourceSatellite,
-          targetSatellite: params.targetSatellite,
-          matrixId: params.matrixId
+      const batchCalculationService = BatchCalculationService.getInstance()
+      
+      if (!params.startTime || !params.endTime || !params.sourceSatellite || !params.targetSatellite || !params.matrixId) {
+        throw new Error('缺少必要的计算参数')
+      }
+
+      const progressCallback = (progress: number) => {
+        try {
+          const mainWindow = WindowService.getInstance().getMainWindow()
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('calculation:progress', progress)
+          }
+        } catch (error) {
+          // 忽略进度更新错误
         }
-      })
-      throw error
+      }
+
+      const result = await batchCalculationService.batchCalculate(params, progressCallback)
+      
+      if (!result.success) {
+        throw new Error(result.message || '计算失败')
+      }
+
+      return result
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+
+      try {
+        const mainWindow = WindowService.getInstance().getMainWindow()
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('calculation:error', errorMessage)
+        }
+      } catch (e) {
+        // 忽略错误通知失败
+      }
+
+      throw new Error(errorMessage)
     }
   })
 }
@@ -140,7 +192,20 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     DatabaseService.getInstance().close()
+    BatchCalculationService.getInstance().cleanup() // 清理工作线程
     app.quit()
+  }
+})
+
+// 添加应用退出时的清理
+app.on('before-quit', () => {
+  try {
+    // 确保工作线程被清理
+    BatchCalculationService.getInstance().cleanup()
+    // 关闭数据库连接
+    DatabaseService.getInstance().close()
+  } catch (error) {
+    console.error('应用退出时清理资源失败:', error)
   }
 })
 

@@ -62,6 +62,20 @@ export class DatabaseService {
         yaw_urad REAL
       )
     `)
+
+    // 创建索引
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_satellite_data_time ON satellite_data(time);
+      CREATE INDEX IF NOT EXISTS idx_satellite_data_name ON satellite_data(satellite_name);
+      CREATE INDEX IF NOT EXISTS idx_ephemeris_results_time ON ephemeris_results(time);
+      CREATE INDEX IF NOT EXISTS idx_ephemeris_results_source ON ephemeris_results(source_satellite);
+      CREATE INDEX IF NOT EXISTS idx_ephemeris_results_target ON ephemeris_results(target_satellite);
+    `)
+
+    // 优化数据库性能
+    this.db.pragma('journal_mode = WAL')
+    this.db.pragma('synchronous = NORMAL')
+    this.db.pragma('cache_size = -2000') // 使用2MB缓存
   }
 
   // 卫星数据相关方法
@@ -126,21 +140,28 @@ export class DatabaseService {
         q2 = excluded.q2,
         q3 = excluded.q3
     `)
+
+    // 使用事务和批量插入优化性能
     const insertMany = this.db.transaction((rows) => {
-      for (const row of rows) {
-        stmt.run(
-          row.time,
-          row.satellite_name,
-          row.pos_x,
-          row.pos_y,
-          row.pos_z,
-          row.q0,
-          row.q1,
-          row.q2,
-          row.q3
-        )
+      const batchSize = 1000
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize)
+        for (const row of batch) {
+          stmt.run(
+            row.time,
+            row.satellite_name,
+            row.pos_x,
+            row.pos_y,
+            row.pos_z,
+            row.q0,
+            row.q1,
+            row.q2,
+            row.q3
+          )
+        }
       }
     })
+    
     insertMany(dataArr)
   }
 
@@ -208,32 +229,36 @@ export class DatabaseService {
     page: number = 1,
     pageSize: number = 10
   ) {
-    let query = 'SELECT * FROM satellite_data'
-    const conditions = []
+    let query = `
+      WITH filtered_data AS (
+        SELECT * FROM satellite_data
+        WHERE 1=1
+        ${timeRange ? 'AND time BETWEEN ? AND ?' : ''}
+        ${satellite ? 'AND satellite_name = ?' : ''}
+      )
+      SELECT * FROM filtered_data
+      ORDER BY time ASC
+      LIMIT ? OFFSET ?
+    `
+    
     const params = []
-
     if (timeRange) {
-      conditions.push('time BETWEEN ? AND ?')
       params.push(timeRange.start, timeRange.end)
     }
     if (satellite) {
-      conditions.push('satellite_name = ?')
       params.push(satellite)
     }
-
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ')
-    }
-    query += ' ORDER BY time ASC'
-    query += ' LIMIT ? OFFSET ?'
     params.push(pageSize, (page - 1) * pageSize)
 
     const data = this.db.prepare(query).all(...params)
 
-    let countQuery = 'SELECT COUNT(*) as total FROM satellite_data'
-    if (conditions.length > 0) {
-      countQuery += ' WHERE ' + conditions.join(' AND ')
-    }
+    // 使用子查询优化计数
+    const countQuery = `
+      SELECT COUNT(*) as total FROM satellite_data
+      WHERE 1=1
+      ${timeRange ? 'AND time BETWEEN ? AND ?' : ''}
+      ${satellite ? 'AND satellite_name = ?' : ''}
+    `
     const total = (this.db.prepare(countQuery).get(...params.slice(0, params.length - 2)) as any).total
 
     return { data, total }

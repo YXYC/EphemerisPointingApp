@@ -2,9 +2,29 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import electron from 'vite-plugin-electron'
 import { resolve } from 'path'
-import { fileURLToPath } from 'node:url'
+import fs from 'fs'
+import path from 'path'
 
 // https://vitejs.dev/config/
+
+function getAllElectronTsEntries(dir: string, baseDir = dir) {
+  let entries: Record<string, string> = {}
+  const files = fs.readdirSync(dir)
+  for (const file of files) {
+    const fullPath = path.join(dir, file)
+    const stat = fs.statSync(fullPath)
+    if (stat.isDirectory()) {
+      entries = { ...entries, ...getAllElectronTsEntries(fullPath, baseDir) }
+    } else if (file.endsWith('.ts')) {
+      const entryName = path.relative(baseDir, fullPath).replace(/\\/g, '/').replace(/\.ts$/, '')
+      entries[entryName] = fullPath
+    }
+  }
+  return entries
+}
+
+const electronEntries = getAllElectronTsEntries(path.resolve(__dirname, 'electron'))
+
 export default defineConfig({
   plugins: [
     vue(),
@@ -18,13 +38,7 @@ export default defineConfig({
             rollupOptions: {
               external: ['electron', 'better-sqlite3'],
               input: {
-                // 主入口文件
-                main: resolve(__dirname, 'electron/main.ts'),
-                // 预加载脚本
-                preload: resolve(__dirname, 'electron/preload.ts'),
-                // services 目录下的文件
-                'services/window.service': resolve(__dirname, 'electron/services/window.service.ts'),
-                'services/database.service': resolve(__dirname, 'electron/services/database.service.ts')
+                ...electronEntries
               },
               output: {
                 entryFileNames: '[name].js',

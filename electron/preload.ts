@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { CalculationResponse } from '../../src/types/global'
+import { CalculationResponse } from '../src/types/global'
+
 
 // 定义窗口控制通道
 const WINDOW_CONTROL_CHANNELS = {

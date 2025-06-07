@@ -1,4 +1,7 @@
 import { DatabaseService } from './database.service'
+import { Worker } from 'worker_threads'
+import path from 'path'
+import { app } from 'electron'
 import { SatelliteProcessor, Vector3d, Quaternion } from './satellite-processor.service'
 import { SatelliteDataItem, MeasurementMatrix } from '../../src/types/global'
 
@@ -43,11 +46,165 @@ interface CalculationResponse {
 export class BatchCalculationService {
   private static instance: BatchCalculationService
   private dbService: DatabaseService
+  private workerPool: Map<number, Worker> = new Map()
+  private taskQueue: Array<{
+    task: any
+    resolve: (value: any) => void
+    reject: (error: any) => void
+  }> = []
+  private readonly MAX_WORKERS = 4
+  private readonly WORKER_TIMEOUT = 30000 // 30秒超时
   private satelliteProcessor: SatelliteProcessor
+  private nextWorkerId = 0
+  private activeWorkerCount = 0
 
   private constructor() {
     this.dbService = DatabaseService.getInstance()
     this.satelliteProcessor = new SatelliteProcessor()
+  }
+
+  private createWorker(): number {
+    const workerId = this.nextWorkerId++
+    const workerPath = path.join(__dirname, '../../dist-electron/workers/calculation.worker.js')
+    
+    if (!require('fs').existsSync(workerPath)) {
+      throw new Error(`Worker 文件不存在: ${workerPath}`)
+    }
+
+    const worker = new Worker(workerPath)
+    this.activeWorkerCount++
+
+    worker.on('message', (result) => {
+      const task = this.taskQueue.shift()
+      if (task) {
+        task.resolve(result)
+      }
+      this.workerPool.set(workerId, worker)
+      this.processNextTask()
+    })
+
+    worker.on('error', (error) => {
+      this.handleWorkerError(workerId, error)
+    })
+
+    worker.on('exit', (code) => {
+      if (code !== 0) {
+        this.handleWorkerExit(workerId)
+      }
+    })
+
+    this.workerPool.set(workerId, worker)
+    return workerId
+  }
+
+  private getAvailableWorker(): Worker | null {
+    // 如果当前活跃的 Worker 数量小于最大值，创建新的 Worker
+    if (this.activeWorkerCount < this.MAX_WORKERS) {
+      try {
+        this.createWorker()
+      } catch (error) {
+        return null
+      }
+    }
+
+    // 从现有 Worker 池中获取可用的 Worker
+    for (const worker of this.workerPool.values()) {
+      if (worker.threadId) {
+        return worker
+      }
+    }
+
+    return null
+  }
+
+  private handleWorkerError(workerId: number, error: Error) {
+    const worker = this.workerPool.get(workerId)
+    if (worker) {
+      try {
+        worker.terminate()
+      } catch (e) {
+        // 忽略终止错误
+      }
+      this.workerPool.delete(workerId)
+      this.activeWorkerCount--
+      
+      // 处理当前任务
+      const task = this.taskQueue.shift()
+      if (task) {
+        task.reject(error)
+      }
+    }
+  }
+
+  private handleWorkerExit(workerId: number) {
+    this.workerPool.delete(workerId)
+    this.activeWorkerCount--
+  }
+
+  private processNextTask() {
+    if (this.taskQueue.length === 0) return
+
+    const worker = this.getAvailableWorker()
+    if (!worker) {
+      // 如果没有可用的 Worker，创建新的
+      this.createWorker()
+      return
+    }
+
+    const task = this.taskQueue[0]
+    const timeoutId = setTimeout(() => {
+      const index = this.taskQueue.findIndex(t => t === task)
+      if (index !== -1) {
+        this.taskQueue.splice(index, 1)
+        task.reject(new Error('Worker 任务超时'))
+      }
+    }, this.WORKER_TIMEOUT)
+
+    worker.postMessage(task.task)
+  }
+
+  private async processTaskWithWorker(task: any): Promise<{ success: boolean; results?: CalculationResult[]; error?: string }> {
+    return new Promise((resolve, reject) => {
+      const worker = this.getAvailableWorker()
+      if (!worker) {
+        resolve({ success: false, error: '没有可用的 Worker' })
+        return
+      }
+      
+      const messageHandler = (message: any) => {
+        if (message.type === 'progress') {
+          return
+        }
+        
+        worker.removeListener('message', messageHandler)
+        
+        if (message.type === 'error') {
+          resolve({ success: false, error: message.error })
+          return
+        }
+        
+        if (message.type === 'complete' && message.success) {
+          resolve({ success: true, results: message.results })
+          return
+        }
+        
+        if (message.success && Array.isArray(message.results)) {
+          resolve({ success: true, results: message.results })
+          return
+        }
+        
+        resolve({ success: false, error: '未知的 Worker 消息格式' })
+      }
+      
+      const errorHandler = (error: Error) => {
+        worker.removeListener('error', errorHandler)
+        resolve({ success: false, error: error.message })
+      }
+      
+      worker.on('message', messageHandler)
+      worker.once('error', errorHandler)
+      worker.postMessage(task)
+    })
   }
 
   public static getInstance(): BatchCalculationService {
@@ -65,7 +222,7 @@ export class BatchCalculationService {
   }
 
   // 获取卫星数据
-  private async getSatelliteData(satelliteName: string, startTime: string, endTime: string): Promise<SatelliteData[]> {
+  private async getSatelliteData(satelliteName: string, startTime: string, endTime: string, startPage: number, pageSize: number): Promise<SatelliteData[]> {
     try {
       // 验证时间格式
       const start = new Date(startTime)
@@ -78,8 +235,8 @@ export class BatchCalculationService {
       const { data } = await this.dbService.getSatelliteData(
         { start: startTime, end: endTime },
         satelliteName,
-        1,
-        10000
+        startPage,
+        pageSize
       )
 
       // 验证数据
@@ -174,11 +331,13 @@ export class BatchCalculationService {
   }
 
   // 批量计算主函数
-  public async batchCalculate(params: CalculationParams): Promise<CalculationResponse> {
+  public async batchCalculate(
+    params: CalculationParams,
+    progressCallback?: (progress: number) => void
+  ): Promise<CalculationResponse> {
     const { startTime, endTime, sourceSatellite, targetSatellite, matrixId } = params
     
     try {
-      // 验证输入参数
       if (!startTime || !endTime || !sourceSatellite || !targetSatellite || !matrixId) {
         return {
           success: false,
@@ -186,16 +345,13 @@ export class BatchCalculationService {
         }
       }
 
-      // 1. 获取精测矩阵数据
       const matrix = await this.getMeasurementMatrix(matrixId)
       
-      // 2. 获取本星和对星数据
       const [sourceData, targetData] = await Promise.all([
-        this.getSatelliteData(sourceSatellite, startTime, endTime),
-        this.getSatelliteData(targetSatellite, startTime, endTime)
+        this.getSatelliteData(sourceSatellite, startTime, endTime, 1, 100000),
+        this.getSatelliteData(targetSatellite, startTime, endTime, 1, 100000)
       ])
       
-      // 检查数据是否存在
       if (sourceData.length === 0 || targetData.length === 0) {
         const missingSource = sourceData.length === 0 ? `本星 "${sourceSatellite}"` : ''
         const missingTarget = targetData.length === 0 ? `对星 "${targetSatellite}"` : ''
@@ -206,137 +362,168 @@ export class BatchCalculationService {
           message: `${missingSatellites} 在时间范围 ${startTime} 到 ${endTime} 内没有数据，请先导入卫星数据`
         }
       }
+
+      const targetTimeMap = new Map<string, SatelliteData>()
+      for (const target of targetData) {
+        targetTimeMap.set(target.time, target)
+      }
       
-      // 3. 计算结果数组
-      const results: CalculationResult[] = []
-      let matchedPoints = 0
-      let skippedPoints = 0
-      let timeDiffs: number[] = []
+      const BATCH_SIZE = 1000
+      const totalBatches = Math.ceil(sourceData.length / BATCH_SIZE)
+      const tasks = []
       
-      // 4. 遍历本星数据，找到最近的对星数据点进行计算
-      for (const sourcePoint of sourceData) {
-        // 找到最近的对星数据点
-        let closestTargetPoint: SatelliteData | null = null
-        let minTimeDiff = Infinity
+      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+        const start = batchIndex * BATCH_SIZE
+        const end = Math.min(start + BATCH_SIZE, sourceData.length)
+        const batchSourceData = sourceData.slice(start, end)
         
-        for (const targetPoint of targetData) {
-          if (this.isWithinTimeThreshold(sourcePoint.time, targetPoint.time)) {
-            const timeDiff = Math.abs(new Date(sourcePoint.time).getTime() - new Date(targetPoint.time).getTime())
-            if (timeDiff < minTimeDiff) {
-              minTimeDiff = timeDiff
-              closestTargetPoint = targetPoint
-            }
+        tasks.push({
+          sourceData: batchSourceData,
+          targetData: targetTimeMap,
+          sourceSatellite,
+          targetSatellite,
+          matrix
+        })
+      }
+      
+      const batchResults = await Promise.all(
+        tasks.map(async (task, index) => {
+          const result = await this.processTaskWithWorker(task)
+          if (progressCallback) {
+            const progress = Math.min(100, ((index + 1) / totalBatches) * 100)
+            progressCallback(progress)
           }
-        }
-        
-        // 如果找到合适的对星数据点，进行计算
-        if (closestTargetPoint && sourcePoint.attitude) {
-          matchedPoints++
-          timeDiffs.push(minTimeDiff)
+          return result
+        })
+      )
+      
+      const calculationResults: CalculationResult[] = []
+      let hasError = false
+      let errorMessage = ''
+      
+      for (const result of batchResults) {
+        if (result.success && result.results && result.results.length > 0) {
+          calculationResults.push(...result.results)
           try {
-            // 设置卫星状态
-            this.satelliteProcessor.setSatelliteState(
-              new Vector3d(sourcePoint.position.x, sourcePoint.position.y, sourcePoint.position.z),
-              new Quaternion(sourcePoint.attitude.q0, sourcePoint.attitude.q1, sourcePoint.attitude.q2, sourcePoint.attitude.q3)
-            )
-            
-            // 设置目标位置
-            this.satelliteProcessor.setTargetPosition(
-              new Vector3d(closestTargetPoint.position.x, closestTargetPoint.position.y, closestTargetPoint.position.z)
-            )
-            
-            // 设置精测矩阵
-            this.satelliteProcessor.setMeasurementMatrix(matrix.roll, matrix.pitch, matrix.yaw)
-            
-            // 输出组合后的输入参数
-            console.log('计算输入参数:', {
-              time: sourcePoint.time,
-              sourceSatellite: {
-                name: sourceSatellite,
-                position: {
-                  x: sourcePoint.position.x,
-                  y: sourcePoint.position.y,
-                  z: sourcePoint.position.z
-                },
-                attitude: {
-                  q0: sourcePoint.attitude.q0,
-                  q1: sourcePoint.attitude.q1,
-                  q2: sourcePoint.attitude.q2,
-                  q3: sourcePoint.attitude.q3
-                }
-              },
-              targetSatellite: {
-                name: targetSatellite,
-                position: {
-                  x: closestTargetPoint.position.x,
-                  y: closestTargetPoint.position.y,
-                  z: closestTargetPoint.position.z
-                }
-              },
-              measurementMatrix: {
-                roll_urad: matrix.roll,
-                pitch_urad: matrix.pitch,
-                yaw_urad: matrix.yaw
-              },
-              timestamp: new Date().toISOString()
-            })
-            
-            // 计算相对状态
-            const { distance, yaw, pitch } = this.satelliteProcessor.calculateRelativeState()
-            
-            // 验证计算结果
-            const result = {
-              time: sourcePoint.time,
-              source_satellite: sourceSatellite,
-              target_satellite: targetSatellite,
-              yaw: yaw * 1e6,     // 转换为微弧度
-              pitch: pitch * 1e6,  // 转换为微弧度
-              distance
-            }
-            
-            if (this.validateCalculationResult(result)) {
-              results.push(result)
-            } else {
-              skippedPoints++
-            }
+            await this.saveCalculationResults(result.results)
           } catch (error) {
-            skippedPoints++
+            hasError = true
+            errorMessage = '保存计算结果时发生错误'
           }
-        } else {
-          skippedPoints++
+        } else if (!result.success) {
+          hasError = true
+          errorMessage = result.error || '批次处理失败'
         }
       }
       
-      // 5. 保存计算结果
-      if (results.length > 0) {
-        await this.saveCalculationResults(results)
-        
-        // 转换结果为角度用于前端显示
-        const displayResults = results.map(result => ({
+      if (calculationResults.length > 0) {
+        const displayResults = calculationResults.map(result => ({
           ...result,
-          yaw: result.yaw / 1e6 * (180 / Math.PI),    // 微弧度转角度
-          pitch: result.pitch / 1e6 * (180 / Math.PI)  // 微弧度转角度
+          yaw: result.yaw / 1e6 * (180 / Math.PI),
+          pitch: result.pitch / 1e6 * (180 / Math.PI)
         }))
         
         return {
           success: true,
-          message: '计算完成',
+          message: hasError ? `计算完成，但${errorMessage}` : '计算完成',
           results: displayResults
         }
       } else {
         return {
           success: false,
-          message: '没有符合的完整数据'
+          message: hasError ? errorMessage : '没有符合的完整数据，请检查输入数据是否完整'
         }
       }
       
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
       return {
         success: false,
-        message: errorMessage
+        message: error instanceof Error ? error.message : String(error)
       }
     }
+  }
+
+  // 清理资源
+  public cleanup() {
+    for (const worker of this.workerPool.values()) {
+      try {
+        worker.terminate()
+      } catch (e) {
+        // 忽略终止错误
+      }
+    }
+    this.workerPool.clear()
+    this.activeWorkerCount = 0
+    this.taskQueue = []
+  }
+
+  // 处理单个批次的数据
+  private async processBatch(
+    sourceData: SatelliteData[],
+    targetTimeMap: Map<string, SatelliteData>,
+    sourceSatellite: string,
+    targetSatellite: string,
+    matrix: { roll: number; pitch: number; yaw: number }
+  ): Promise<CalculationResult[]> {
+    const results: CalculationResult[] = []
+    
+    for (const sourcePoint of sourceData) {
+      if (!sourcePoint.attitude) continue
+      
+      // 查找最近的对星数据点
+      let closestTargetPoint: SatelliteData | null = null
+      let minTimeDiff = Infinity
+      
+      // 在时间阈值范围内查找最近的点
+      const sourceTime = new Date(sourcePoint.time).getTime()
+      for (const [targetTime, targetPoint] of targetTimeMap.entries()) {
+        const timeDiff = Math.abs(new Date(targetTime).getTime() - sourceTime)
+        if (timeDiff <= 1200 && timeDiff < minTimeDiff) { // 1.2秒 = 1200毫秒
+          minTimeDiff = timeDiff
+          closestTargetPoint = targetPoint
+        }
+      }
+      
+      if (closestTargetPoint) {
+        try {
+          // 设置卫星状态
+          this.satelliteProcessor.setSatelliteState(
+            new Vector3d(sourcePoint.position.x, sourcePoint.position.y, sourcePoint.position.z),
+            new Quaternion(sourcePoint.attitude.q0, sourcePoint.attitude.q1, sourcePoint.attitude.q2, sourcePoint.attitude.q3)
+          )
+          
+          // 设置目标位置
+          this.satelliteProcessor.setTargetPosition(
+            new Vector3d(closestTargetPoint.position.x, closestTargetPoint.position.y, closestTargetPoint.position.z)
+          )
+          
+          // 设置精测矩阵
+          this.satelliteProcessor.setMeasurementMatrix(matrix.roll, matrix.pitch, matrix.yaw)
+          
+          // 计算相对状态
+          const { distance, yaw, pitch } = this.satelliteProcessor.calculateRelativeState()
+          
+          // 验证计算结果
+          const result = {
+            time: sourcePoint.time,
+            source_satellite: sourceSatellite,
+            target_satellite: targetSatellite,
+            yaw: yaw * 1e6,     // 转换为微弧度
+            pitch: pitch * 1e6,  // 转换为微弧度
+            distance
+          }
+          
+          if (this.validateCalculationResult(result)) {
+            results.push(result)
+          }
+        } catch (error) {
+          // 忽略单个点的计算错误，继续处理下一个点
+          continue
+        }
+      }
+    }
+    
+    return results
   }
 
   private validateSatelliteData(data: SatelliteData[], satelliteName: string) {
